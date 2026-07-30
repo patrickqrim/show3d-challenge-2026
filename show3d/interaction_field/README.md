@@ -64,6 +64,45 @@ accuracy evaluator. For fast training, pre-extract frames with
 `show3d.extract_images --manifest show3d/interaction_field/train_manifest_202607.jsonl`
 (the shipped list of training recordings; see the top-level README).
 
+## Submission format
+
+Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
+(the id is `"<SUBJECT>/<scene_id>:<frame_index:06d>"`):
+
+```json
+{"sample_id": "S001/mug_grab_a1b2:000120", "left_to_object": [[x, y, z], ...], "right_to_object": null}
+```
+
+* `left_to_object` / `right_to_object`: a fixed `(21, 3)` array of millimetre
+  vectors, one per hand joint (the predicted joint-to-nearest-object-surface
+  offset, in world space), or `null` (or omit the key) when you make no
+  prediction for that hand.
+* Every predicted field must be exactly `(21, 3)`; there is no object-side field.
+* Write it with `write_submission_jsonl(path, [PredictionRecord(sample_id=...,
+  fields={"left_to_object": arr, "right_to_object": arr})])`.
+* Hosted evaluation: upload a zip with `predictions.jsonl` at its root.
+
+## Evaluation
+
+For every field that has a valid target, the endpoint error
+`|| prediction_vector - target_vector ||` is computed per joint, in millimetres.
+Reported metrics:
+
+* **`mean_ade_mm`**: mean endpoint error across the two hand fields. This is the
+  primary leaderboard metric; lower is better.
+* **`left_to_object_ade_mm`**, **`right_to_object_ade_mm`**: per-field ADE.
+
+Rules:
+
+* A field is scored only where its target is valid (object pose confident and
+  that hand valid); invalid ground-truth fields are ignored.
+* A missing prediction for a valid field incurs a large penalty.
+* A prediction whose shape is not `(21, 3)` (wrong joint count) is rejected.
+
+`evaluate_submission_jsonl(dataset, "predictions.jsonl")` reproduces this scoring
+offline, and additionally reports accuracy at 10 / 50 / 100 mm (the fraction of
+joints within each threshold) for your own analysis.
+
 ## Single-view or multi-view
 
 Choose the view mode at construction with the `multiview` bool:
