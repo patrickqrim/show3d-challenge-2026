@@ -14,12 +14,18 @@ task-specific contracts: the sampled-frame manifest, directed-field label
 generation, the submission JSONL schema (`predictions.jsonl`), and the local
 ADE / accuracy evaluator.
 
+## Rules
+
+* **Declare your input view** (single-view = headset0 only, multi-view = both
+  headsets; see [below](#single-view-or-multi-view)).
+* **Declare external training data.** Training on other datasets (for example,
+  ARCTIC) is allowed, but submissions with and without external data are ranked
+  separately, so you must declare what you used.
+
 ## Quickstart
 
-Two demos, both runnable with **no data download**: they fall back to a small
-synthetic scene, so you see the whole pipeline in one command.
-
-**End-to-end demo** loads frames, runs a model, evaluates:
+The end-to-end demo runs the whole loop with **no data download** (it falls back
+to a small synthetic scene). Load frames, run a model, evaluate:
 
 ```bash
 python -m show3d.interaction_field.demo
@@ -38,13 +44,7 @@ Evaluation (interaction field, naive random model):
   mean ADE: 163.5 mm
 ```
 
-**Visualization demo** renders one frame's interaction field to a PNG:
-
-```bash
-python -m show3d.demo --out field.png
-```
-
-Run either on your own mirror with `--root DIR --manifest MANIFEST.jsonl`.
+Run it on your own mirror with `--root DIR --manifest MANIFEST.jsonl`.
 
 ## Build your baseline
 
@@ -104,14 +104,6 @@ Rules:
 `evaluate_submission_jsonl(dataset, "predictions.jsonl")` reproduces this scoring
 offline, and additionally reports accuracy at 10 / 50 / 100 mm (the fraction of
 joints within each threshold) for your own analysis.
-
-## Rules
-
-* **Declare your input view** (single-view = headset0 only, multi-view = both
-  headsets; see [below](#single-view-or-multi-view)).
-* **Declare external training data.** Training on other datasets (for example,
-  ARCTIC) is allowed, but submissions with and without external data are ranked
-  separately, so you must declare what you used.
 
 ## Single-view or multi-view
 

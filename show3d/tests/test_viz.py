@@ -15,7 +15,7 @@ from ..interaction_field.demo import build_synthetic_scene
 # The visualization demo needs matplotlib; the rest of the package does not, so
 # guard the import and skip this test when it is unavailable.
 try:
-    from ..demo import run_visualization
+    from ..demo_viz import run_visualization
 except ModuleNotFoundError:
     run_visualization = None
 

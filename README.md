@@ -40,9 +40,20 @@ The loader expects the released on-disk layout under `root`:
 
 The Interaction Field Estimation Challenge is hosted at the HANDS workshop at ECCV
 2026: predict a per-frame, hand-anchored 3D interaction field. Its API, the
-end-to-end and visualization demos, a baseline
-template, and evaluation live in
+end-to-end demo, a baseline template, and evaluation live in
 [`show3d/interaction_field/README.md`](show3d/interaction_field/README.md).
+
+## Visualize a frame
+
+`show3d.demo_viz` renders one frame's interaction field (object surface, hand
+landmarks, and the nearest-neighbor arrows) to a PNG (needs `matplotlib`):
+
+```bash
+python -m show3d.demo_viz --out field.png
+# add --root DIR --manifest MANIFEST.jsonl to visualize your own mirror
+```
+
+![Interaction field on a real frame: arrows from each hand joint to the nearest object-surface point.](show3d/interaction_field/example_field.png)
 
 ## Extracting frames for training
 
@@ -74,7 +85,7 @@ guide, 10 fps is tens of GB single-view (about 100 GB both views).
 ```
 show3d/
 ├── dataset.py                    # generic SHOW3D dataloader API
-├── demo.py                       # interaction-field visualization demo -> PNG
+├── demo_viz.py                   # visualization: interaction field -> PNG
 ├── extract_images.py             # pre-extract frames to images at a chosen fps
 ├── interaction_field/
 │   ├── README.md                 # the challenge: task, demos, baseline, eval
