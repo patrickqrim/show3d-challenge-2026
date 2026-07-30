@@ -194,7 +194,6 @@ def build_synthetic_scene(root: Path, *, num_frames: int = 6) -> Path:
             scene_id=scene_id,
             frame_index=i,
             object_alias="mug",
-            has_left_hand=True,
         )
         for i in range(num_frames)
     ]

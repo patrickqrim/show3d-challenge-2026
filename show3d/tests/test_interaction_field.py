@@ -25,11 +25,13 @@ from ..interaction_field import (
     LabelRecord,
     LEFT_TO_OBJECT,
     make_manifest_rows,
+    NUM_HAND_LANDMARKS,
     PredictionRecord,
     read_manifest_jsonl,
     RIGHT_TO_OBJECT,
     sampled_frame_indices,
     Show3DInteractionFieldDataset,
+    validate_submission,
     write_label_jsonl,
     write_manifest_jsonl,
     write_submission_jsonl,
@@ -55,7 +57,6 @@ class Show3DInteractionApiTest(unittest.TestCase):
                 "mug_grab_a1b2",
                 num_frames=13,
                 sampling_fps=10.0,
-                has_left_hand=True,
             )
             write_manifest_jsonl(path, rows)
 
@@ -67,27 +68,21 @@ class Show3DInteractionApiTest(unittest.TestCase):
                         subject_id="S001",
                         scene_id="mug_grab_a1b2",
                         frame_index=0,
-                        sampling_fps=10.0,
                         object_alias="mug",
-                        has_left_hand=True,
                     ),
                     InteractionFieldSample(
                         sample_id="S001/mug_grab_a1b2:000006",
                         subject_id="S001",
                         scene_id="mug_grab_a1b2",
                         frame_index=6,
-                        sampling_fps=10.0,
                         object_alias="mug",
-                        has_left_hand=True,
                     ),
                     InteractionFieldSample(
                         sample_id="S001/mug_grab_a1b2:000012",
                         subject_id="S001",
                         scene_id="mug_grab_a1b2",
                         frame_index=12,
-                        sampling_fps=10.0,
                         object_alias="mug",
-                        has_left_hand=True,
                     ),
                 ],
             )
@@ -102,10 +97,7 @@ class Show3DInteractionApiTest(unittest.TestCase):
                 subject_id=subject_id,
                 scene_id=scene_id,
                 frame_index=0,
-                sampling_fps=10.0,
                 object_alias="mug",
-                has_left_hand=True,
-                has_right_hand=False,
             )
             manifest_path = root / "manifest.jsonl"
             write_manifest_jsonl(manifest_path, [sample])
@@ -207,9 +199,7 @@ class Show3DInteractionApiTest(unittest.TestCase):
                 subject_id=subject_id,
                 scene_id=scene_id,
                 frame_index=0,
-                sampling_fps=10.0,
                 object_alias="mug",
-                has_left_hand=True,
             )
             manifest_path = root / "manifest.jsonl"
             write_manifest_jsonl(manifest_path, [sample])
@@ -300,6 +290,75 @@ class Show3DInteractionApiTest(unittest.TestCase):
                     },
                     f,
                 )
+
+    def test_validate_submission_reports_coverage_and_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = root / "test_manifest.jsonl"
+            write_manifest_jsonl(
+                manifest,
+                [
+                    InteractionFieldSample(
+                        sample_id="S001/mug_grab_a1b2:000000",
+                        subject_id="S001",
+                        scene_id="mug_grab_a1b2",
+                        frame_index=0,
+                    ),
+                    InteractionFieldSample(
+                        sample_id="S001/mug_grab_a1b2:000006",
+                        subject_id="S001",
+                        scene_id="mug_grab_a1b2",
+                        frame_index=6,
+                    ),
+                ],
+            )
+            good = np.zeros((NUM_HAND_LANDMARKS, 3), dtype=np.float64)
+
+            # Predict only the first sample (both hands): ok, one missing.
+            sub = root / "predictions.jsonl"
+            write_submission_jsonl(
+                sub,
+                [
+                    PredictionRecord(
+                        sample_id="S001/mug_grab_a1b2:000000",
+                        fields={LEFT_TO_OBJECT: good, RIGHT_TO_OBJECT: good},
+                    )
+                ],
+            )
+            report = validate_submission(manifest, sub)
+            self.assertTrue(report.ok)
+            self.assertEqual(report.num_matched_samples, 1)
+            self.assertEqual(report.missing_sample_ids, ["S001/mug_grab_a1b2:000006"])
+            self.assertEqual(report.left_predicted, 1)
+            self.assertEqual(report.right_predicted, 1)
+
+            # A sample_id not in the manifest -> invalid.
+            unknown = root / "unknown.jsonl"
+            write_submission_jsonl(
+                unknown,
+                [
+                    PredictionRecord(
+                        sample_id="S001/mug_grab_a1b2:999999",
+                        fields={LEFT_TO_OBJECT: good},
+                    )
+                ],
+            )
+            self.assertFalse(validate_submission(manifest, unknown).ok)
+
+            # A field with the wrong joint count -> invalid, reported.
+            malformed = root / "malformed.jsonl"
+            write_submission_jsonl(
+                malformed,
+                [
+                    PredictionRecord(
+                        sample_id="S001/mug_grab_a1b2:000000",
+                        fields={LEFT_TO_OBJECT: np.zeros((5, 3))},
+                    )
+                ],
+            )
+            report_bad = validate_submission(manifest, malformed)
+            self.assertFalse(report_bad.ok)
+            self.assertTrue(report_bad.malformed_fields)
 
 
 if __name__ == "__main__":

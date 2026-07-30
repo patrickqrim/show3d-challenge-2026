@@ -2,17 +2,17 @@
 
 The SHOW3D Interaction Field Estimation Challenge is hosted at the HANDS workshop
 at ECCV 2026. The task is per-frame: given an egocentric frame, predict, for each
-hand, a
-**hand-anchored 3D vector field**: the offset from
-every one of the 21 hand joints to the nearest surface point of the manipulated
-object. The prediction is therefore fixed size, `(21, 3)` per hand, independent
-of the object.
+hand, a **hand-anchored 3D vector field** -- the offset from every one of the 21
+hand joints to the nearest surface point of the manipulated object. The
+prediction is a fixed `(21, 3)` per hand, independent of the object.
 
-`show3d.interaction_field` builds on `show3d.dataset` (see the
-[top-level README](../../README.md) for install and dataset setup) and owns the
-task-specific contracts: the sampled-frame manifest, directed-field label
-generation, the submission JSONL schema (`predictions.jsonl`), and the local
-ADE / accuracy evaluator.
+The path through this README: run the [demo](#quickstart) (no data needed),
+[build a baseline](#build-your-baseline), [train](#training-set) on the shipped
+train manifest, then [produce and submit](#submit-your-predictions) predictions
+on the test manifest. `show3d.interaction_field` builds on `show3d.dataset` (see
+the [top-level README](../../README.md) for install and dataset setup) and owns
+the task-specific pieces: the frame manifests, label generation, the submission
+schema, and the local evaluator.
 
 ## Rules
 
@@ -110,26 +110,68 @@ and materialize the targets in one command:
 submission against it directly. Only train-subject labels exist; the held-out
 test frames have none.
 
-## Submission format
+## Submit your predictions
 
-Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
-(the id is `"<SUBJECT>/<scene_id>:<frame_index:06d>"`):
+The test set is the shipped **test manifest** -- one row per frame you must
+predict, keyed by `sample_id` (`"<SUBJECT>/<scene_id>:<frame_index:06d>"`), with
+no labels:
+
+```text
+show3d/interaction_field/test_manifest_5fps_202607.jsonl
+```
+
+Download the videos + calibration for the manifest's scenes into your `root`
+mirror (the held-out test subjects; no labels are released for them).
+
+**1. Format.** Write one JSON object per line to `predictions.jsonl`, keyed by
+`sample_id`. Each of `left_to_object` / `right_to_object` is a fixed `(21, 3)`
+array of millimeter vectors -- one per hand joint, the predicted offset from that
+joint to the nearest object-surface point, in world space. There is no
+object-side field.
 
 ```json
 {"sample_id": "S001/mug_grab_a1b2:000120", "left_to_object": [[x, y, z], ...], "right_to_object": [[x, y, z], ...]}
 ```
 
-* Each of `left_to_object` / `right_to_object` is a fixed `(21, 3)` array of
-  millimeter vectors, one per hand joint (the predicted joint-to-nearest-
-  object-surface offset, in world space).
-* **Predict both hands.** You do not know at test time which hands have a valid
-  target. A valid target you leave unpredicted (a missing or `null` field) lowers
-  your **recall** (see [Evaluation](#evaluation)), so predict both hands unless
-  you deliberately abstain.
-* Every predicted field must be exactly `(21, 3)`; there is no object-side field.
-* Write it with `write_submission_jsonl(path, [PredictionRecord(sample_id=...,
-  fields={"left_to_object": arr, "right_to_object": arr})])`.
-* Hosted evaluation: upload a zip with `predictions.jsonl` at its root.
+**Predict both hands.** You do not know at test time which hands have a valid
+target, so a missing or `null` field only lowers your recall (see
+[Evaluation](#evaluation)) -- use `null` solely to abstain.
+
+**2. Produce it.** Run your model over the test manifest and write the file:
+
+```python
+from show3d.interaction_field import (
+    PredictionRecord,
+    Show3DInteractionFieldDataset,
+    write_submission_jsonl,
+)
+
+manifest = "show3d/interaction_field/test_manifest_5fps_202607.jsonl"
+# Inputs only: there are no test labels, so load_labels=False.
+dataset = Show3DInteractionFieldDataset(root, manifest, load_labels=False, decode_images=True)
+
+records = []
+for index in range(len(dataset)):
+    example = dataset[index]
+    left, right = your_model(example)  # each a (21, 3) array, world mm
+    records.append(PredictionRecord(
+        sample_id=example.sample.sample_id,
+        fields={"left_to_object": left, "right_to_object": right},
+    ))
+write_submission_jsonl("predictions.jsonl", records)
+```
+
+**3. Validate, then upload.** Self-check before submitting:
+
+```bash
+python -m show3d.interaction_field.validate_submission \
+    --manifest show3d/interaction_field/test_manifest_5fps_202607.jsonl \
+    --submission predictions.jsonl
+```
+
+It flags any `sample_id` not in the manifest and any field that is not `(21, 3)`,
+and reports how many frames you left unpredicted. Upload a zip with
+`predictions.jsonl` at its root.
 
 ## Evaluation
 

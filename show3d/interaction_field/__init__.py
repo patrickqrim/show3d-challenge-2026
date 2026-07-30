@@ -42,8 +42,6 @@ from ..dataset import (
 )
 
 
-DEFAULT_SAMPLING_FPS: float = 10.0
-
 # Hands are 21-joint UmeTrack skeletons, so each hand-anchored field is a fixed
 # ``(NUM_HAND_LANDMARKS, 3)`` target regardless of the object.
 NUM_HAND_LANDMARKS: int = 21
@@ -68,11 +66,7 @@ class InteractionFieldSample:
     subject_id: str
     scene_id: str
     frame_index: int
-    sampling_fps: float = DEFAULT_SAMPLING_FPS
-    video_fps: float = DEFAULT_VIDEO_FPS
     object_alias: str | None = None
-    has_left_hand: bool = False
-    has_right_hand: bool = False
 
     @classmethod
     def from_json(cls, row: Mapping[str, object]) -> "InteractionFieldSample":
@@ -84,12 +78,8 @@ class InteractionFieldSample:
             subject_id=subject_id,
             scene_id=scene_id,
             frame_index=_required_int(row, "frame_index"),
-            sampling_fps=_optional_float(row, "sampling_fps", DEFAULT_SAMPLING_FPS),
-            video_fps=_optional_float(row, "video_fps", DEFAULT_VIDEO_FPS),
             object_alias=_optional_str(row, "object_alias")
             or object_alias_from_scene_id(scene_id),
-            has_left_hand=_optional_bool(row, "has_left_hand", False),
-            has_right_hand=_optional_bool(row, "has_right_hand", False),
         )
 
     def to_frame_ref(self) -> Show3DFrameRef:
@@ -97,7 +87,6 @@ class InteractionFieldSample:
             subject_id=self.subject_id,
             scene_id=self.scene_id,
             frame_index=self.frame_index,
-            video_fps=self.video_fps,
             object_alias=self.object_alias,
         )
 
@@ -107,10 +96,6 @@ class InteractionFieldSample:
             "subject_id": self.subject_id,
             "scene_id": self.scene_id,
             "frame_index": self.frame_index,
-            "sampling_fps": self.sampling_fps,
-            "video_fps": self.video_fps,
-            "has_left_hand": self.has_left_hand,
-            "has_right_hand": self.has_right_hand,
         }
         if self.object_alias is not None:
             row["object_alias"] = self.object_alias
@@ -417,12 +402,14 @@ def make_manifest_rows(
     subject_id: str,
     scene_id: str,
     num_frames: int,
-    *,
-    sampling_fps: float = DEFAULT_SAMPLING_FPS,
-    video_fps: float = DEFAULT_VIDEO_FPS,
-    has_left_hand: bool = False,
-    has_right_hand: bool = False,
+    sampling_fps: float,
 ) -> list[InteractionFieldSample]:
+    """Build per-frame samples for a scene, sampled at ``sampling_fps``.
+
+    ``sampling_fps`` is required and passed explicitly by the caller (e.g. the
+    organizer building the test manifest at the fixed eval rate) -- the kit ships
+    no default sampling rate, so participants are not nudged toward one.
+    """
     object_alias = object_alias_from_scene_id(scene_id)
     return [
         InteractionFieldSample(
@@ -430,15 +417,9 @@ def make_manifest_rows(
             subject_id=subject_id,
             scene_id=scene_id,
             frame_index=frame_index,
-            sampling_fps=sampling_fps,
-            video_fps=video_fps,
             object_alias=object_alias,
-            has_left_hand=has_left_hand,
-            has_right_hand=has_right_hand,
         )
-        for frame_index in sampled_frame_indices(
-            num_frames, sampling_fps, video_fps=video_fps
-        )
+        for frame_index in sampled_frame_indices(num_frames, sampling_fps)
     ]
 
 
@@ -555,6 +536,74 @@ def write_submission_jsonl(
         for record in records:
             f.write(json.dumps(record.to_json(), sort_keys=True))
             f.write("\n")
+
+
+@dataclass(frozen=True)
+class SubmissionReport:
+    """Result of checking a ``predictions.jsonl`` against a test manifest."""
+
+    num_manifest_samples: int
+    num_matched_samples: int
+    missing_sample_ids: list[str]  # manifest ids with no prediction (lowers recall)
+    unknown_sample_ids: list[str]  # submission ids not in the manifest
+    left_predicted: int
+    right_predicted: int
+    malformed_fields: list[str]  # "sample_id.field: expected (21, 3), got (r, c)"
+
+    @property
+    def ok(self) -> bool:
+        """True when the submission is safe to upload: no unknown ``sample_id``s
+        and every field is ``(NUM_HAND_LANDMARKS, 3)``. Missing predictions are
+        allowed (they only lower recall)."""
+        return not self.unknown_sample_ids and not self.malformed_fields
+
+
+def validate_submission(
+    manifest_path: str | Path, submission_path: str | Path
+) -> SubmissionReport:
+    """Check a ``predictions.jsonl`` against a test manifest before you submit.
+
+    Invalid (``report.ok is False``): a ``sample_id`` not in the manifest, or a
+    field that is not ``(NUM_HAND_LANDMARKS, 3)``. Missing predictions are
+    reported but allowed -- they lower recall, and the challenge asks you to
+    predict both hands, so a missing field is only worth it as a deliberate
+    abstention.
+    """
+    manifest_ids = [sample.sample_id for sample in read_manifest_jsonl(manifest_path)]
+    manifest_set = set(manifest_ids)
+    predictions = read_submission_jsonl(submission_path)
+
+    unknown = sorted(set(predictions) - manifest_set)
+    missing = [sid for sid in manifest_ids if sid not in predictions]
+    left = 0
+    right = 0
+    malformed: list[str] = []
+    for sid in manifest_ids:
+        record = predictions.get(sid)
+        if record is None:
+            continue
+        for field_name in FIELD_NAMES:
+            value = record.fields.get(field_name)
+            if value is None:
+                continue
+            if field_name == LEFT_TO_OBJECT:
+                left += 1
+            else:
+                right += 1
+            if value.shape != (NUM_HAND_LANDMARKS, 3):
+                malformed.append(
+                    f"{sid}.{field_name}: expected ({NUM_HAND_LANDMARKS}, 3), "
+                    f"got {tuple(value.shape)}"
+                )
+    return SubmissionReport(
+        num_manifest_samples=len(manifest_ids),
+        num_matched_samples=len(manifest_set & set(predictions)),
+        missing_sample_ids=missing,
+        unknown_sample_ids=unknown,
+        left_predicted=left,
+        right_predicted=right,
+        malformed_fields=malformed,
+    )
 
 
 def read_label_jsonl(path: str | Path) -> list[LabelRecord]:
@@ -802,22 +851,4 @@ def _required_int(row: Mapping[str, object], key: str) -> int:
     value = row.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"Required int field missing: {key}")
-    return value
-
-
-def _optional_float(row: Mapping[str, object], key: str, default: float) -> float:
-    value = row.get(key)
-    if value is None:
-        return default
-    if isinstance(value, bool) or not isinstance(value, (float, int)):
-        raise ValueError(f"Expected numeric field for {key}")
-    return float(value)
-
-
-def _optional_bool(row: Mapping[str, object], key: str, default: bool) -> bool:
-    value = row.get(key)
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        raise ValueError(f"Expected bool field for {key}")
     return value

@@ -1,6 +1,8 @@
 # SHOW3D dataset API
 
-Standalone Python starter APIs for the SHOW3D dataset (`facebook/show3d-dataset`).
+Standalone Python starter APIs for the SHOW3D dataset
+(`facebook/show3d-dataset`) and the Interaction Field Estimation Challenge at the
+HANDS workshop, ECCV 2026.
 
 ## Install
 
@@ -8,6 +10,19 @@ Standalone Python starter APIs for the SHOW3D dataset (`facebook/show3d-dataset`
 pip install -r requirements.txt
 # or: pip install numpy opencv-python   (add matplotlib for the visualization demo)
 ```
+
+## Quickstart
+
+See the whole interaction-field loop -- load frames, run a model, evaluate -- in
+one command, with **no data download** (it falls back to a tiny synthetic scene):
+
+```bash
+python -m show3d.interaction_field.demo
+```
+
+Then head to the
+**[Interaction Field Estimation challenge](show3d/interaction_field/README.md)**
+for the task, baseline, training, and submission flow.
 
 ## The dataset
 
@@ -130,13 +145,17 @@ end-to-end training flow.
 ```
 show3d/
 ├── dataset.py                    # generic SHOW3D dataloader API
-├── demo_viz.py                   # visualization: interaction field -> PNG
-├── extract_images.py             # pre-extract frames to images at a chosen fps
+├── camera.py                     # pinhole projection helpers
+├── viz.py                        # drawing / rendering library
+├── demo_viz.py                   # visualization CLI (overlay / geometry / field)
+├── extract_images.py             # pre-extract frames (+ labels) at a chosen fps
 ├── interaction_field/
-│   ├── README.md                 # the challenge: task, demos, baseline, eval
-│   ├── train_manifest_202607.jsonl   # exact training recordings (train subjects)
-│   ├── __init__.py               # interaction-field challenge API
-│   └── demo.py                   # end-to-end demo: load -> model -> eval
+│   ├── README.md                 # the challenge: task, baseline, train, submit, eval
+│   ├── __init__.py               # challenge API (dataset, labels, eval, submission)
+│   ├── demo.py                   # end-to-end demo: load -> model -> eval
+│   ├── validate_submission.py    # check a predictions.jsonl before you upload
+│   ├── train_manifest_202607.jsonl       # training recordings (train subjects)
+│   └── test_manifest_5fps_202607.jsonl   # test frames to predict on (no labels)
 ├── assets/objects/               # bundled object meshes (.glb, HOT3D-derived)
 └── tests/                        # unit tests
 ```

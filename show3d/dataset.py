@@ -78,7 +78,6 @@ class Show3DFrameRef:
     subject_id: str
     scene_id: str
     frame_index: int
-    video_fps: float = DEFAULT_VIDEO_FPS
     object_alias: str | None = None
 
     @classmethod
@@ -88,7 +87,6 @@ class Show3DFrameRef:
             subject_id=_required_str(row, "subject_id"),
             scene_id=scene_id,
             frame_index=_required_int(row, "frame_index"),
-            video_fps=_optional_float(row, "video_fps", DEFAULT_VIDEO_FPS),
             object_alias=_optional_str(row, "object_alias")
             or object_alias_from_scene_id(scene_id),
         )
@@ -98,7 +96,6 @@ class Show3DFrameRef:
             "subject_id": self.subject_id,
             "scene_id": self.scene_id,
             "frame_index": self.frame_index,
-            "video_fps": self.video_fps,
         }
         if self.object_alias is not None:
             row["object_alias"] = self.object_alias
