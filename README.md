@@ -36,12 +36,33 @@ The loader expects the released on-disk layout under `root`:
 └── hand_pose/<version>/scenes/<subject>/<scene>/hand_pose.json
 ```
 
+## Extracting frames for training
+
+Random per-frame video seeking is slow, so training straight from the MP4s is
+decode-bound. Pre-extract the frames you need, at an fps **you choose**, into a
+random-access image store:
+
+```bash
+python -m show3d.extract_images --root /path/to/show3d --out frames/ --fps 10
+# --views headset0 | --format png | --quality 80 | --workers 16 | --posed-only
+```
+
+`--fps` is required and has no default: it dominates both dataset size and
+temporal coverage. It must be a whole number that divides the 60 fps source
+(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60); other values are rejected. The tool
+decodes each recording once (sequential, no seeking), writes grayscale JPEGs (or
+PNG with `--format png`) to
+`frames/<subject>/<scene>/<view>/<frame>.jpg` plus an `index.jsonl` that a
+map-style training `Dataset` can shuffle over. As a rough size guide, 10 fps is
+tens of GB single-view (about 100 GB both views).
+
 ## Repository layout
 
 ```
 show3d/
 ├── dataset.py                    # generic SHOW3D dataloader API
 ├── demo.py                       # visualization demo (interaction field -> PNG)
+├── extract.py                    # pre-extract frames to JPEG at a chosen fps
 ├── interaction_field/
 │   ├── __init__.py               # interaction-field challenge API
 │   └── demo.py                   # end-to-end demo: load -> model -> eval
