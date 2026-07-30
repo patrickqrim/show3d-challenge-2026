@@ -38,8 +38,9 @@ The loader expects the released on-disk layout under `root`:
 
 ## Interaction Field Estimation challenge
 
-The flagship task built on this dataset: predict a per-frame, hand-anchored 3D
-interaction field. Its API, the end-to-end and visualization demos, a baseline
+The Interaction Field Estimation Challenge is hosted at the HANDS workshop at ECCV
+2026: predict a per-frame, hand-anchored 3D interaction field. Its API, the
+end-to-end and visualization demos, a baseline
 template, and evaluation live in
 [`show3d/interaction_field/README.md`](show3d/interaction_field/README.md).
 

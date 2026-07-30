@@ -1,7 +1,9 @@
 # Interaction Field Estimation
 
-The flagship SHOW3D challenge. The task is per-frame: given an egocentric frame,
-predict, for each hand, a **hand-anchored 3D vector field** — the offset from
+The SHOW3D Interaction Field Estimation Challenge is hosted at the HANDS workshop
+at ECCV 2026. The task is per-frame: given an egocentric frame, predict, for each
+hand, a
+**hand-anchored 3D vector field**: the offset from
 every one of the 21 hand joints to the nearest surface point of the manipulated
 object. The prediction is therefore fixed size, `(21, 3)` per hand, independent
 of the object.
