@@ -253,19 +253,26 @@ def _print_result(result: EvaluationResult) -> None:
     print("Evaluation (interaction field, naive random model):")
     for field_name in FIELD_NAMES:
         metric = result.fields[field_name]
-        if metric.ade_mm is None:
+        if metric.recall is None:
             print(f"  {field_name:16s}: no valid targets")
             continue
         acc = " ".join(
             f"acc@{int(t)}mm={v:.2f}"
             for t, v in sorted(metric.accuracy_by_threshold_mm.items())
         )
+        ade = f"{metric.ade_mm:8.1f} mm" if metric.ade_mm is not None else "     n/a  "
+        predicted = metric.num_samples - metric.missing_predictions
         print(
-            f"  {field_name:16s}: ADE {metric.ade_mm:8.1f} mm | "
-            f"{metric.num_points:5d} pts | {acc}"
+            f"  {field_name:16s}: ADE {ade} | "
+            f"recall {metric.recall:.2f} ({predicted}/{metric.num_samples}) | {acc}"
         )
-    mean = result.mean_ade_mm
-    print(f"  mean ADE: {mean:.1f} mm" if mean is not None else "  mean ADE: n/a")
+    mean_ade = result.mean_ade_mm
+    mean_recall = result.mean_recall
+    print(
+        f"  mean ADE: {mean_ade:.1f} mm" if mean_ade is not None else "  mean ADE: n/a"
+    )
+    if mean_recall is not None:
+        print(f"  mean recall: {mean_recall:.2f} (fraction of valid targets predicted)")
 
 
 def main() -> None:

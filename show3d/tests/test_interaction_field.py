@@ -18,7 +18,9 @@ from numpy.typing import NDArray
 from ..interaction_field import (
     DEFAULT_VIDEO_FPS,
     evaluate_label_jsonl,
+    evaluate_prediction_records,
     evaluate_submission_jsonl,
+    InteractionFieldLabels,
     InteractionFieldSample,
     LabelRecord,
     LEFT_TO_OBJECT,
@@ -147,11 +149,14 @@ class Show3DInteractionApiTest(unittest.TestCase):
             self.assertEqual(result.fields[LEFT_TO_OBJECT].num_points, 2)
             self.assertEqual(result.fields[LEFT_TO_OBJECT].missing_predictions, 0)
             self.assertEqual(result.fields[LEFT_TO_OBJECT].ade_mm, 0.0)
+            self.assertEqual(result.fields[LEFT_TO_OBJECT].recall, 1.0)
             self.assertEqual(
                 result.fields[LEFT_TO_OBJECT].accuracy_by_threshold_mm[10.0],
                 1.0,
             )
             self.assertEqual(result.fields[RIGHT_TO_OBJECT].num_points, 0)
+            # Right hand has no valid target here -> recall is undefined, not 0.
+            self.assertIsNone(result.fields[RIGHT_TO_OBJECT].recall)
 
             label_path = root / "labels.jsonl"
             write_label_jsonl(
@@ -160,6 +165,37 @@ class Show3DInteractionApiTest(unittest.TestCase):
             )
             label_result = evaluate_label_jsonl(label_path, submission_path)
             self.assertEqual(label_result.mean_ade_mm, 0.0)
+
+    def test_missing_prediction_lowers_recall_not_ade(self) -> None:
+        # Two frames carry a valid left-hand target; predict only the first.
+        target = np.zeros((2, 3), dtype=np.float64)
+        references = [
+            LabelRecord(
+                sample_id="S001/mug_grab_a1b2:000000",
+                labels=InteractionFieldLabels(left_to_object=target),
+            ),
+            LabelRecord(
+                sample_id="S001/mug_grab_a1b2:000006",
+                labels=InteractionFieldLabels(left_to_object=target),
+            ),
+        ]
+        predictions = {
+            "S001/mug_grab_a1b2:000000": PredictionRecord(
+                sample_id="S001/mug_grab_a1b2:000000",
+                fields={LEFT_TO_OBJECT: target},
+            )
+        }
+        result = evaluate_prediction_records(references, predictions)
+        left = result.fields[LEFT_TO_OBJECT]
+        # Coverage drops (one of two valid targets predicted); recall records it.
+        self.assertEqual(left.num_samples, 2)
+        self.assertEqual(left.missing_predictions, 1)
+        self.assertEqual(left.recall, 0.5)
+        # ADE / accuracy are over the predicted target only -- the miss is NOT
+        # folded into the error here (the penalty lives in the withheld aggregate).
+        self.assertEqual(left.num_points, 2)
+        self.assertEqual(left.ade_mm, 0.0)
+        self.assertEqual(result.mean_recall, 0.5)
 
     def test_synthesized_frame_yields_no_labels(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -234,13 +234,26 @@ class LabelRecord:
 
 @dataclass(frozen=True)
 class FieldMetric:
-    """Aggregated metric for one directed field."""
+    """Aggregated metric for one directed field.
+
+    ``ade_mm`` and ``accuracy_by_threshold_mm`` are over the *predicted* valid
+    targets (``num_points``); ``recall`` reports how many of the valid targets
+    were predicted at all, so abstaining shows up here instead of silently
+    improving the error. ``num_samples`` is the count of valid targets (predicted
+    plus missing); ``recall = (num_samples - missing_predictions) / num_samples``.
+    """
 
     num_samples: int
     num_points: int
     missing_predictions: int
     ade_mm: float | None
     accuracy_by_threshold_mm: dict[float, float]
+    recall: float | None
+
+    @property
+    def missing_rate(self) -> float | None:
+        """Fraction of valid targets left unpredicted (``1 - recall``)."""
+        return None if self.recall is None else 1.0 - self.recall
 
 
 @dataclass(frozen=True)
@@ -255,6 +268,18 @@ class EvaluationResult:
             metric.ade_mm
             for metric in self.fields.values()
             if metric.ade_mm is not None
+        ]
+        if not values:
+            return None
+        return float(sum(values) / len(values))
+
+    @property
+    def mean_recall(self) -> float | None:
+        """Mean recall across fields that have any valid target."""
+        values = [
+            metric.recall
+            for metric in self.fields.values()
+            if metric.recall is not None
         ]
         if not values:
             return None
@@ -713,12 +738,18 @@ class _MetricAccumulator:
             )
             for threshold in self._accuracy_thresholds_mm
         }
+        recall = (
+            (self._num_samples - self._missing_predictions) / self._num_samples
+            if self._num_samples > 0
+            else None
+        )
         return FieldMetric(
             num_samples=self._num_samples,
             num_points=self._num_points,
             missing_predictions=self._missing_predictions,
             ade_mm=ade_mm,
             accuracy_by_threshold_mm=accuracy_by_threshold,
+            recall=recall,
         )
 
 

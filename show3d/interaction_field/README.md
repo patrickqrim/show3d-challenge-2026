@@ -39,9 +39,10 @@ Interaction field for S000/mug_grab_demo:000000 (hand joint -> nearest object-su
   left_to_object  : 21x3 field | joint0 gt=(    -0,     7,    -6) pred=(    13,   -13,    64)
 
 Evaluation (interaction field, naive random model):
-  left_to_object  : ADE    163.5 mm |   105 pts | acc@10mm=0.00 acc@50mm=0.02 acc@100mm=0.18
+  left_to_object  : ADE    163.5 mm | recall 1.00 (5/5) | acc@10mm=0.00 acc@50mm=0.02 acc@100mm=0.18
   right_to_object : no valid targets
   mean ADE: 163.5 mm
+  mean recall: 1.00 (fraction of valid targets predicted)
 ```
 
 Run it on your own mirror with `--root DIR --manifest MANIFEST.jsonl`.
@@ -122,8 +123,9 @@ Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
   millimeter vectors, one per hand joint (the predicted joint-to-nearest-
   object-surface offset, in world space).
 * **Predict both hands.** You do not know at test time which hands have a valid
-  target, so a missing or `null` field is scored as a miss (large penalty)
-  wherever the target is valid; use `null` only to deliberately abstain.
+  target. A valid target you leave unpredicted (a missing or `null` field) lowers
+  your **recall** (see [Evaluation](#evaluation)), so predict both hands unless
+  you deliberately abstain.
 * Every predicted field must be exactly `(21, 3)`; there is no object-side field.
 * Write it with `write_submission_jsonl(path, [PredictionRecord(sample_id=...,
   fields={"left_to_object": arr, "right_to_object": arr})])`.
@@ -131,24 +133,26 @@ Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
 
 ## Evaluation
 
-For every field that has a valid target, the endpoint error
-`|| prediction_vector - target_vector ||` is computed per joint, in millimeters.
-Reported metrics:
+Every field with a valid target (object pose confident and that hand valid) is
+scored; invalid ground-truth fields are ignored. Two metric families are
+reported, per field (`left_to_object`, `right_to_object`) and averaged across the
+two hands:
 
-* **`mean_ade_mm`**: mean endpoint error across the two hand fields. This is the
-  primary leaderboard metric; lower is better.
-* **`left_to_object_ade_mm`**, **`right_to_object_ade_mm`**: per-field ADE.
+* **Accuracy on the targets you predicted:**
+  * **`ade_mm`**: mean per-joint endpoint error
+    `|| prediction_vector - target_vector ||`, in millimeters
+    (`mean_ade_mm` averages the two hands; lower is better).
+  * accuracy at 10 / 50 / 100 mm: the fraction of joints within each threshold.
+* **`recall`** (`mean_recall`): the fraction of valid targets you predicted at
+  all. Skipping frames lifts your accuracy on what remains but lowers recall, so
+  coverage stays visible and abstaining does not hide.
 
-Rules:
-
-* A field is scored only where its target is valid (object pose confident and
-  that hand valid); invalid ground-truth fields are ignored.
-* A missing prediction for a valid field incurs a large penalty.
-* A prediction whose shape is not `(21, 3)` (wrong joint count) is rejected.
+A prediction whose shape is not `(21, 3)` (wrong joint count) is rejected. The
+final leaderboard ranking accounts for both accuracy and coverage, so omitting
+hard frames does not pay off.
 
 `evaluate_submission_jsonl(dataset, "predictions.jsonl")` reproduces this scoring
-offline, and additionally reports accuracy at 10 / 50 / 100 mm (the fraction of
-joints within each threshold) for your own analysis.
+offline.
 
 ## Single-view or multi-view
 
