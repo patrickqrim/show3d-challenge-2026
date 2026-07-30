@@ -70,13 +70,15 @@ Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
 (the id is `"<SUBJECT>/<scene_id>:<frame_index:06d>"`):
 
 ```json
-{"sample_id": "S001/mug_grab_a1b2:000120", "left_to_object": [[x, y, z], ...], "right_to_object": null}
+{"sample_id": "S001/mug_grab_a1b2:000120", "left_to_object": [[x, y, z], ...], "right_to_object": [[x, y, z], ...]}
 ```
 
-* `left_to_object` / `right_to_object`: a fixed `(21, 3)` array of millimetre
-  vectors, one per hand joint (the predicted joint-to-nearest-object-surface
-  offset, in world space), or `null` (or omit the key) when you make no
-  prediction for that hand.
+* Each of `left_to_object` / `right_to_object` is a fixed `(21, 3)` array of
+  millimeter vectors, one per hand joint (the predicted joint-to-nearest-
+  object-surface offset, in world space).
+* **Predict both hands.** You do not know at test time which hands have a valid
+  target, so a missing or `null` field is scored as a miss (large penalty)
+  wherever the target is valid; use `null` only to deliberately abstain.
 * Every predicted field must be exactly `(21, 3)`; there is no object-side field.
 * Write it with `write_submission_jsonl(path, [PredictionRecord(sample_id=...,
   fields={"left_to_object": arr, "right_to_object": arr})])`.
@@ -85,7 +87,7 @@ Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`
 ## Evaluation
 
 For every field that has a valid target, the endpoint error
-`|| prediction_vector - target_vector ||` is computed per joint, in millimetres.
+`|| prediction_vector - target_vector ||` is computed per joint, in millimeters.
 Reported metrics:
 
 * **`mean_ade_mm`**: mean endpoint error across the two hand fields. This is the
@@ -103,6 +105,14 @@ Rules:
 offline, and additionally reports accuracy at 10 / 50 / 100 mm (the fraction of
 joints within each threshold) for your own analysis.
 
+## Rules
+
+* **Declare your input view** (single-view = headset0 only, multi-view = both
+  headsets; see [below](#single-view-or-multi-view)).
+* **Declare external training data.** Training on other datasets (for example,
+  ARCTIC) is allowed, but submissions with and without external data are ranked
+  separately, so you must declare what you used.
+
 ## Single-view or multi-view
 
 Choose the view mode at construction with the `multiview` bool:
@@ -117,6 +127,7 @@ Each frame's `frame_data.views` is a dict keyed by the selected view name. Each
 (`CameraCalibration`: pinhole `fx, fy, cx, cy`, image size, and the 4×4
 `t_world_from_camera` for that frame). The interaction-field target is in 3D
 world space, so it is view-independent; the choice only affects the inputs.
+Declare which setting (single-view or multi-view) you used when you submit.
 
 Frames decode on demand: pass `decode_images=True` and each `ViewFrame.image`
 is the decoded RGB frame `(H, W, 3)` uint8; otherwise `image` is `None` and you

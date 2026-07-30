@@ -1,6 +1,6 @@
 # Bundled object meshes — attribution
 
-`<alias>.glb` — one GLB mesh per challenge object (object frame, **millimetres**),
+`<alias>.glb` — one GLB mesh per challenge object (object frame, **millimeters**),
 keyed by SHOW3D object alias. These are the object surfaces that define the
 interaction-field target: pose them per frame with the released `R,t`
 (`ObjectPoseFrame.pose_vertices`) to get the object in world space.

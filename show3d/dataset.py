@@ -118,7 +118,7 @@ class ObjectPoseFrame:
 
     confidence: float
     rotation: FloatArray  # (3, 3) world-from-object rotation
-    translation_mm: FloatArray  # (3,) world-from-object translation, millimetres
+    translation_mm: FloatArray  # (3,) world-from-object translation, millimeters
 
     def pose_vertices(self, vertices_object_mm: FloatArray) -> FloatArray:
         """Transform object-frame vertices (Nx3, mm) into world space (Nx3, mm)."""
