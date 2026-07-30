@@ -159,12 +159,12 @@ bundled meshes are derived from the HOT3D object models (BOP HOT3D release,
 If you use SHOW3D, please cite:
 
 ```bibtex
-@article{rim2026show3d,
-  title   = {SHOW3D: Capturing Scenes of 3D Hands and Objects in the Wild},
-  author  = {Rim, Patrick and Harris, Kevin and Copple, Braden and Han, Shangchen and
-             Xie, Xu and Shugurov, Ivan and An, Sizhe and Wen, He and
-             Wong, Alex and Hodan, Tomas and others},
-  journal = {arXiv preprint arXiv:2603.28760},
-  year    = {2026}
+@InProceedings{Rim_2026_CVPR,
+    author    = {Rim, Patrick and Harris, Kevin and Copple, Braden and Han, Shangchen and Xie, Xu and Shugurov, Ivan and An, Sizhe and Wen, He and Wong, Alex and Hodan, Tomas and He, Kun},
+    title     = {SHOW3D: Capturing Scenes of 3D Hands and Objects in the Wild},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month     = {June},
+    year      = {2026},
+    pages     = {7111-7120}
 }
 ```
