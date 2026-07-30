@@ -18,6 +18,14 @@ Frames are written as JPEG by default. The source videos are already lossy
 (H.264/H.265), so JPEG at high quality adds negligible loss at a fraction of PNG's
 size; use ``--format png`` only if you need bit-exact decoded frames.
 
+By default only the interaction-field training set is extracted (scenes that have
+object-pose ground truth, which is train-only); pass ``--all-scenes`` for the
+full mirror.
+
+By default only the interaction-field training set is extracted (scenes that have
+object-pose ground truth, which is train-only); pass ``--all-scenes`` for the
+full mirror.
+
 Sampling keeps every k-th frame, so ``--fps`` must be a whole number that divides
 the 60 fps source: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, or 60. It is required
 and rejects any other value.
@@ -108,6 +116,23 @@ def iter_scenes(root: Path, subjects: set[str] | None) -> list[tuple[str, str]]:
             if scene_dir.is_dir():
                 pairs.append((subject_dir.name, scene_dir.name))
     return pairs
+
+
+def scenes_from_manifest(manifest_path: str | Path) -> list[tuple[str, str]]:
+    """Distinct ``(subject_id, scene_id)`` from a JSONL manifest (one row per line)."""
+    seen: set[tuple[str, str]] = set()
+    scenes: list[tuple[str, str]] = []
+    with Path(manifest_path).open() as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            row = json.loads(stripped)
+            key = (str(row["subject_id"]), str(row["scene_id"]))
+            if key not in seen:
+                seen.add(key)
+                scenes.append(key)
+    return scenes
 
 
 def _posed_indices(
@@ -232,6 +257,7 @@ def run_extraction(
     out: str | Path,
     fps: int,
     *,
+    manifest: str | Path | None = None,
     views: Sequence[str] = EGOCENTRIC_VIEWS,
     quality: int = 90,
     image_format: str = "jpeg",
@@ -239,17 +265,36 @@ def run_extraction(
     subjects: Sequence[str] | None = None,
     limit: int | None = None,
     posed_only: bool = False,
+    require_object_pose: bool = True,
     object_pose_version: str = DEFAULT_OBJECT_POSE_VERSION,
     source_fps: float = DEFAULT_SOURCE_FPS,
     verbose: bool = False,
 ) -> dict[str, object]:
-    """Extract frames for every recording under ``root`` and write the index."""
+    """Extract frames under ``root`` and write the index.
+
+    Pass ``manifest`` (a challenge manifest JSONL) to extract exactly the scenes
+    it names -- the reproducible way. Without it, the tool walks ``<root>/scenes``
+    and, by default, keeps only the interaction-field training set (scenes with
+    object-pose GT); pass ``require_object_pose=False`` for every scene.
+    """
     validate_fps(fps, source_fps)
     root_path = Path(root)
     out_path = Path(out)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    scenes = iter_scenes(root_path, set(subjects) if subjects else None)
+    if manifest is not None:
+        scenes = scenes_from_manifest(manifest)
+    else:
+        scenes = iter_scenes(root_path, set(subjects) if subjects else None)
+        if require_object_pose:
+            paths = Show3DPaths(root_path, object_pose_version=object_pose_version)
+            scenes = [
+                (subject, scene)
+                for (subject, scene) in scenes
+                if paths.object_pose_path(
+                    Show3DFrameRef(subject_id=subject, scene_id=scene, frame_index=0)
+                ).exists()
+            ]
     if limit is not None:
         scenes = scenes[:limit]
 
@@ -288,6 +333,8 @@ def run_extraction(
         "format": image_format,
         "quality": quality,
         "posed_only": posed_only,
+        "manifest": str(manifest) if manifest is not None else None,
+        "require_object_pose": require_object_pose,
         "num_recordings": len(scenes),
         "num_frames": len(rows),
     }
@@ -308,6 +355,13 @@ def main() -> None:
     )
     parser.add_argument("--root", type=Path, required=True, help="SHOW3D mirror root")
     parser.add_argument("--out", type=Path, required=True, help="output directory")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="challenge manifest .jsonl of the exact scenes to extract "
+        "(the reproducible way; overrides tree walking)",
+    )
     parser.add_argument(
         "--fps",
         type=int,
@@ -344,6 +398,13 @@ def main() -> None:
         action="store_true",
         help="skip frames without a confident object pose (needs object_pose/)",
     )
+    parser.add_argument(
+        "--all-scenes",
+        dest="require_object_pose",
+        action="store_false",
+        help="extract every scene, not just the interaction-field training set "
+        "(scenes that have object-pose GT)",
+    )
     parser.add_argument("--object-pose-version", default=DEFAULT_OBJECT_POSE_VERSION)
     parser.add_argument(
         "--source-fps",
@@ -362,6 +423,7 @@ def main() -> None:
         args.root,
         args.out,
         args.fps,
+        manifest=args.manifest,
         views=tuple(args.views),
         quality=args.quality,
         image_format=args.image_format,
@@ -369,6 +431,7 @@ def main() -> None:
         subjects=args.subjects,
         limit=args.limit,
         posed_only=args.posed_only,
+        require_object_pose=args.require_object_pose,
         object_pose_version=args.object_pose_version,
         source_fps=args.source_fps,
         verbose=True,
