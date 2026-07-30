@@ -37,8 +37,14 @@ and rejects any other value.
 Output layout::
 
     <out>/<subject>/<scene>/<view>/<frame_index:06d>.jpg
-    <out>/index.jsonl          # one row per frame: sample_id, subject, scene, frame, view, image
+    <out>/index.jsonl          # one row per (frame, view): sample_id, subject, scene, frame, view, image
+    <out>/labels.jsonl         # with --save-labels: one row per frame, targets keyed by sample_id
     <out>/extract_info.json    # the parameters used
+
+Pass ``--save-labels`` to also materialize the interaction-field targets for the
+extracted frames into ``labels.jsonl`` (per frame, keyed by the same
+``sample_id`` as the images, so they join 1:1). It needs ``object_pose/`` and
+``hand_pose/`` under ``--root``.
 """
 
 from __future__ import annotations
@@ -49,18 +55,25 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import as_completed, ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import cv2
 
 from .dataset import (
     DEFAULT_CONFIDENCE_THRESHOLD,
+    DEFAULT_HAND_POSE_VERSION,
     DEFAULT_OBJECT_POSE_VERSION,
     EGOCENTRIC_VIEWS,
     load_object_pose_frame,
     Show3DFrameRef,
     Show3DPaths,
 )
-from .interaction_field import sampled_frame_indices
+from .interaction_field import (
+    build_label_records,
+    InteractionFieldSample,
+    make_sample_id,
+    sampled_frame_indices,
+)
 
 DEFAULT_SOURCE_FPS: float = 60.0  # SHOW3D is captured at 60 fps
 
@@ -75,6 +88,8 @@ class ExtractConfig:
     quality: int
     posed_only: bool
     object_pose_version: str
+    save_labels: bool = False
+    hand_pose_version: str = DEFAULT_HAND_POSE_VERSION
 
 
 def valid_fps_values(source_fps: float = DEFAULT_SOURCE_FPS) -> list[int]:
@@ -198,14 +213,51 @@ def _write_sampled(
     return written
 
 
+def _build_label_rows(
+    root_path: Path,
+    subject_id: str,
+    scene_id: str,
+    rows: list[dict[str, object]],
+    config: ExtractConfig,
+) -> list[dict[str, object]]:
+    """Materialize per-frame interaction-field targets for the extracted frames.
+
+    Deduped across views (the target is view-independent), keyed by ``sample_id``.
+    """
+    if not config.save_labels or not rows:
+        return []
+    frame_indices = sorted({cast(int, row["frame_index"]) for row in rows})
+    samples = [
+        InteractionFieldSample(
+            sample_id=make_sample_id(subject_id, scene_id, frame_index),
+            subject_id=subject_id,
+            scene_id=scene_id,
+            frame_index=frame_index,
+        )
+        for frame_index in frame_indices
+    ]
+    records = build_label_records(
+        root_path,
+        samples,
+        hand_pose_version=config.hand_pose_version,
+        object_pose_version=config.object_pose_version,
+    )
+    return [record.to_json() for record in records]
+
+
 def extract_scene(
     root: str,
     out: str,
     subject_id: str,
     scene_id: str,
     config: ExtractConfig,
-) -> list[dict[str, object]]:
-    """Extract one recording's sampled frames; return its index rows."""
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Extract one recording's sampled frames; return ``(index rows, label rows)``.
+
+    ``label rows`` is empty unless ``config.save_labels`` -- then it holds one
+    per-frame interaction-field target (deduped across views), keyed by the same
+    ``sample_id`` as the index rows.
+    """
     root_path = Path(root)
     out_path = Path(out)
     paths = Show3DPaths(root_path, object_pose_version=config.object_pose_version)
@@ -249,7 +301,90 @@ def extract_scene(
                 )
         finally:
             capture.release()
-    return rows
+
+    label_rows = _build_label_rows(root_path, subject_id, scene_id, rows, config)
+    return rows, label_rows
+
+
+def _require_pose_trees(
+    root_path: Path, object_pose_version: str, hand_pose_version: str
+) -> None:
+    """Raise if --save-labels is requested but the pose trees are not present."""
+    missing = [
+        str(directory)
+        for directory in (
+            root_path / "object_pose" / object_pose_version,
+            root_path / "hand_pose" / hand_pose_version,
+        )
+        if not directory.is_dir()
+    ]
+    if missing:
+        raise ValueError(
+            "--save-labels needs the pose trees under --root; missing: "
+            + ", ".join(missing)
+            + ". Download object_pose/ and hand_pose/ for the training subjects."
+        )
+
+
+def _select_scenes(
+    root_path: Path,
+    manifest: str | Path | None,
+    subjects: Sequence[str] | None,
+    require_object_pose: bool,
+    object_pose_version: str,
+    limit: int | None,
+) -> list[tuple[str, str]]:
+    """Resolve the ``(subject, scene)`` list to extract."""
+    if manifest is not None:
+        scenes = scenes_from_manifest(manifest)
+    else:
+        scenes = iter_scenes(root_path, set(subjects) if subjects else None)
+        if require_object_pose:
+            paths = Show3DPaths(root_path, object_pose_version=object_pose_version)
+            scenes = [
+                (subject, scene)
+                for (subject, scene) in scenes
+                if paths.object_pose_path(
+                    Show3DFrameRef(subject_id=subject, scene_id=scene, frame_index=0)
+                ).exists()
+            ]
+    if limit is not None:
+        scenes = scenes[:limit]
+    return scenes
+
+
+def _run_scenes(
+    args: list[tuple[str, str, str, str, ExtractConfig]],
+    workers: int,
+    verbose: bool,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Extract every scene (parallel when workers > 1); return (index, label) rows."""
+    rows: list[dict[str, object]] = []
+    label_rows: list[dict[str, object]] = []
+    if workers and workers > 1 and len(args) > 1:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(extract_scene, *a) for a in args]
+            for done, future in enumerate(as_completed(futures), start=1):
+                scene_rows, scene_labels = future.result()
+                rows.extend(scene_rows)
+                label_rows.extend(scene_labels)
+                if verbose and done % 50 == 0:
+                    print(f"  {done}/{len(args)} recordings")
+    else:
+        for done, a in enumerate(args, start=1):
+            scene_rows, scene_labels = extract_scene(*a)
+            rows.extend(scene_rows)
+            label_rows.extend(scene_labels)
+            if verbose and done % 50 == 0:
+                print(f"  {done}/{len(args)} recordings")
+    return rows, label_rows
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    with path.open("w") as f:
+        for row in rows:
+            f.write(json.dumps(row, sort_keys=True))
+            f.write("\n")
 
 
 def run_extraction(
@@ -267,6 +402,8 @@ def run_extraction(
     posed_only: bool = False,
     require_object_pose: bool = True,
     object_pose_version: str = DEFAULT_OBJECT_POSE_VERSION,
+    hand_pose_version: str = DEFAULT_HAND_POSE_VERSION,
+    save_labels: bool = False,
     source_fps: float = DEFAULT_SOURCE_FPS,
     verbose: bool = False,
 ) -> dict[str, object]:
@@ -276,28 +413,21 @@ def run_extraction(
     it names -- the reproducible way. Without it, the tool walks ``<root>/scenes``
     and, by default, keeps only the interaction-field training set (scenes with
     object-pose GT); pass ``require_object_pose=False`` for every scene.
+
+    With ``save_labels`` it also writes ``<out>/labels.jsonl``: the per-frame
+    interaction-field targets, keyed by the same ``sample_id`` as the images so
+    they join 1:1. That needs ``object_pose/`` and ``hand_pose/`` under ``root``.
     """
     validate_fps(fps, source_fps)
     root_path = Path(root)
     out_path = Path(out)
     out_path.mkdir(parents=True, exist_ok=True)
+    if save_labels:
+        _require_pose_trees(root_path, object_pose_version, hand_pose_version)
 
-    if manifest is not None:
-        scenes = scenes_from_manifest(manifest)
-    else:
-        scenes = iter_scenes(root_path, set(subjects) if subjects else None)
-        if require_object_pose:
-            paths = Show3DPaths(root_path, object_pose_version=object_pose_version)
-            scenes = [
-                (subject, scene)
-                for (subject, scene) in scenes
-                if paths.object_pose_path(
-                    Show3DFrameRef(subject_id=subject, scene_id=scene, frame_index=0)
-                ).exists()
-            ]
-    if limit is not None:
-        scenes = scenes[:limit]
-
+    scenes = _select_scenes(
+        root_path, manifest, subjects, require_object_pose, object_pose_version, limit
+    )
     config = ExtractConfig(
         fps=fps,
         views=tuple(views),
@@ -305,28 +435,19 @@ def run_extraction(
         quality=quality,
         posed_only=posed_only,
         object_pose_version=object_pose_version,
+        save_labels=save_labels,
+        hand_pose_version=hand_pose_version,
     )
-    rows: list[dict[str, object]] = []
     args = [(str(root_path), str(out_path), s, sc, config) for (s, sc) in scenes]
-
-    if workers and workers > 1 and len(args) > 1:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(extract_scene, *a) for a in args]
-            for done, future in enumerate(as_completed(futures), start=1):
-                rows.extend(future.result())
-                if verbose and done % 50 == 0:
-                    print(f"  {done}/{len(scenes)} recordings")
-    else:
-        for done, a in enumerate(args, start=1):
-            rows.extend(extract_scene(*a))
-            if verbose and done % 50 == 0:
-                print(f"  {done}/{len(scenes)} recordings")
+    rows, label_rows = _run_scenes(args, workers, verbose)
 
     index_path = out_path / "index.jsonl"
-    with index_path.open("w") as f:
-        for row in rows:
-            f.write(json.dumps(row, sort_keys=True))
-            f.write("\n")
+    _write_jsonl(index_path, rows)
+    labels_path = out_path / "labels.jsonl"
+    if save_labels:
+        label_rows.sort(key=lambda row: cast(str, row["sample_id"]))
+        _write_jsonl(labels_path, label_rows)
+
     info: dict[str, object] = {
         "fps": fps,
         "views": list(views),
@@ -335,9 +456,12 @@ def run_extraction(
         "posed_only": posed_only,
         "manifest": str(manifest) if manifest is not None else None,
         "require_object_pose": require_object_pose,
+        "save_labels": save_labels,
         "num_recordings": len(scenes),
         "num_frames": len(rows),
     }
+    if save_labels:
+        info["num_labels"] = len(label_rows)
     (out_path / "extract_info.json").write_text(
         json.dumps(info, indent=2, sort_keys=True)
     )
@@ -346,6 +470,8 @@ def run_extraction(
             f"Extracted {len(rows)} frames from {len(scenes)} recordings -> {out_path}"
         )
         print(f"  index: {index_path}")
+        if save_labels:
+            print(f"  labels: {labels_path} ({len(label_rows)} frames with targets)")
     return info
 
 
@@ -406,6 +532,14 @@ def main() -> None:
         "(scenes that have object-pose GT)",
     )
     parser.add_argument("--object-pose-version", default=DEFAULT_OBJECT_POSE_VERSION)
+    parser.add_argument("--hand-pose-version", default=DEFAULT_HAND_POSE_VERSION)
+    parser.add_argument(
+        "--save-labels",
+        action="store_true",
+        help="also write labels.jsonl: the per-frame interaction-field targets, "
+        "aligned to the images by sample_id (needs object_pose/ and hand_pose/ "
+        "under --root)",
+    )
     parser.add_argument(
         "--source-fps",
         type=float,
@@ -433,6 +567,8 @@ def main() -> None:
         posed_only=args.posed_only,
         require_object_pose=args.require_object_pose,
         object_pose_version=args.object_pose_version,
+        hand_pose_version=args.hand_pose_version,
+        save_labels=args.save_labels,
         source_fps=args.source_fps,
         verbose=True,
     )

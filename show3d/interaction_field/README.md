@@ -64,6 +64,51 @@ accuracy evaluator. For fast training, pre-extract frames with
 `show3d.extract_images --manifest show3d/interaction_field/train_manifest_202607.jsonl`
 (the shipped list of training recordings; see the top-level README).
 
+## Training set
+
+Training uses **train subjects only**. The shipped manifest
+`train_manifest_202607.jsonl` lists the exact **468 training recordings**; labels
+(object pose + hand pose) are released for these on Hugging Face, and
+test-subject labels are withheld.
+
+* **468 recordings** = 10 subjects x 21 objects; 830,597 source frames at 60 fps
+  (about 138,579 frames per view at the default 10 fps sampling).
+* **Per subject** (recordings): ASC023 62, SPI102 62, LWA828 58, YZH016 58,
+  XXI103 45, PCW023 43, MHA016 42, MMO925 40, XYZ109 32, LYA722 26.
+* **Per object** (recordings): birdhousetoy 47, dinotoy 42, keyboard 42, mug 41,
+  vase 37, dumbbell 36, milk 33, brushholder 30, balandabowl 26, orangejuice 26,
+  aria 23, mustard 18, bbq 16, ranch 16, mouse 8, canparmesan 5, cansoup 5,
+  cantomatosauce 5, vegetables 5, waffles 5, mug2 2.
+
+### Building a fast training set (images + labels)
+
+`Show3DInteractionFieldDataset` decodes frames from the MP4s on the fly, which is
+fine for evaluation but slow for training. For training, pre-extract the frames
+and materialize the targets in one command:
+
+1. **Download** the training recordings' `scenes/` (videos), `object_pose/v1`,
+   and `hand_pose/v2` from Hugging Face -- the manifest names the exact scenes.
+2. **Extract + label** in one pass:
+
+   ```bash
+   python -m show3d.extract_images \
+       --root /path/to/show3d --out frames/ --fps 10 \
+       --manifest show3d/interaction_field/train_manifest_202607.jsonl \
+       --save-labels
+   ```
+
+   This writes `frames/index.jsonl` (one row per frame *and view*: the image
+   path) and `frames/labels.jsonl` (one row per frame: the `(21, 3)` target per
+   hand, deduped across views), both keyed by the same `sample_id`.
+3. **Train** from a plain map-style dataset: read `index.jsonl` for image paths,
+   look up the target in `labels.jsonl` by `sample_id`, skip frames absent from
+   `labels.jsonl` (no valid target). No re-decoding, no pose parsing per step.
+
+`labels.jsonl` is the evaluator's reference-label format, so
+`evaluate_label_jsonl("frames/labels.jsonl", "predictions.jsonl")` also scores a
+submission against it directly. Only train-subject labels exist; the held-out
+test frames have none.
+
 ## Submission format
 
 Write one JSON object per line to `predictions.jsonl`, keyed by `sample_id`

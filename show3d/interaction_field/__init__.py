@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -267,8 +267,9 @@ class Show3DInteractionFieldDataset:
     def __init__(
         self,
         root: str | Path,
-        manifest_path: str | Path,
+        manifest_path: str | Path | None = None,
         *,
+        samples: Sequence[InteractionFieldSample] | None = None,
         hand_pose_version: str = DEFAULT_HAND_POSE_VERSION,
         object_pose_version: str = DEFAULT_OBJECT_POSE_VERSION,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
@@ -277,7 +278,18 @@ class Show3DInteractionFieldDataset:
         multiview: bool = True,
         decode_images: bool = False,
     ) -> None:
-        self.samples: list[InteractionFieldSample] = read_manifest_jsonl(manifest_path)
+        # Accept either a manifest file or an in-memory sample list (the latter
+        # lets extract_images materialize labels for the frames it just wrote).
+        if manifest_path is not None and samples is not None:
+            raise ValueError(
+                "Provide exactly one of manifest_path or samples, not both"
+            )
+        if samples is not None:
+            self.samples: list[InteractionFieldSample] = list(samples)
+        elif manifest_path is not None:
+            self.samples = read_manifest_jsonl(manifest_path)
+        else:
+            raise ValueError("Provide either manifest_path or samples")
         self.confidence_threshold: float = confidence_threshold
         self.load_labels: bool = load_labels
         # Maps an object alias -> its canonical mesh vertices (object frame, mm).
@@ -539,6 +551,42 @@ def write_label_jsonl(path: str | Path, records: Iterable[LabelRecord]) -> None:
         for record in records:
             f.write(json.dumps(record.to_json(), sort_keys=True))
             f.write("\n")
+
+
+def build_label_records(
+    root: str | Path,
+    samples: Sequence[InteractionFieldSample],
+    *,
+    hand_pose_version: str = DEFAULT_HAND_POSE_VERSION,
+    object_pose_version: str = DEFAULT_OBJECT_POSE_VERSION,
+    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+    object_mesh_provider: Callable[[str], FloatArray | None] | None = None,
+) -> list[LabelRecord]:
+    """Build per-frame interaction-field labels for ``samples``.
+
+    Returns one ``LabelRecord`` per frame that has a valid target (object pose
+    confident and at least one valid hand), keyed by the same ``sample_id`` that
+    ``extract_images`` writes for each extracted image -- so labels join to
+    images 1:1. Frames with no valid target are omitted.
+    """
+    dataset = Show3DInteractionFieldDataset(
+        root,
+        samples=samples,
+        load_labels=True,
+        hand_pose_version=hand_pose_version,
+        object_pose_version=object_pose_version,
+        confidence_threshold=confidence_threshold,
+        object_mesh_provider=object_mesh_provider,
+        multiview=False,
+    )
+    records: list[LabelRecord] = []
+    for index in range(len(dataset)):
+        example = dataset[index]
+        if example.labels is not None and example.labels.is_valid:
+            records.append(
+                LabelRecord(sample_id=example.sample.sample_id, labels=example.labels)
+            )
+    return records
 
 
 def evaluate_submission_jsonl(

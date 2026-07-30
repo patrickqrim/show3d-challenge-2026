@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from ..extract_images import run_extraction, validate_fps
+from ..interaction_field.demo import build_synthetic_scene
 
 
 class ExtractImagesTest(unittest.TestCase):
@@ -143,6 +144,63 @@ class ExtractImagesTest(unittest.TestCase):
             self.assertEqual(info["num_recordings"], 1)
             scenes = {row["scene_id"] for row in self._read_index(out)}
             self.assertEqual(scenes, {"mug_grab_aaaa"})
+
+    def test_save_labels_writes_aligned_deduped_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "data"
+            # Synthetic scene ships valid object_pose + hand_pose (left hand only);
+            # its mp4s are empty, so overlay real videos to decode.
+            build_synthetic_scene(root, num_frames=13)
+            scene = root / "scenes" / "S000" / "mug_grab_demo"
+            for view in ("headset0", "headset1"):
+                self._write_video(scene / f"{view}.mp4", num_frames=13, fps=60)
+
+            out = Path(td) / "frames"
+            info = run_extraction(
+                root,
+                out,
+                fps=10,
+                require_object_pose=False,
+                workers=1,
+                save_labels=True,
+            )
+
+            # index: per (frame, view) -> 3 frames (0, 6, 12) x 2 views = 6 rows.
+            index_sids = {row["sample_id"] for row in self._read_index(out)}
+            labels = [
+                json.loads(line)
+                for line in (out / "labels.jsonl").read_text().splitlines()
+                if line.strip()
+            ]
+            label_sids = [row["sample_id"] for row in labels]
+            # One label per FRAME, deduped across the two views, joining to images.
+            self.assertEqual(len(label_sids), len(set(label_sids)))
+            self.assertEqual(len(labels), 3)
+            self.assertEqual(info["num_labels"], 3)
+            self.assertTrue(set(label_sids).issubset(index_sids))
+            for row in labels:
+                self.assertEqual(len(cast(list, row["left_to_object"])), 21)
+                self.assertIsNone(row["right_to_object"])
+
+    def test_save_labels_requires_pose_trees(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "data"
+            self._write_video(
+                root / "scenes" / "S001" / "mug_grab_a1b2" / "headset0.mp4",
+                num_frames=13,
+                fps=60,
+            )
+            out = Path(td) / "frames"
+            with self.assertRaises(ValueError):
+                run_extraction(
+                    root,
+                    out,
+                    fps=10,
+                    views=("headset0",),
+                    require_object_pose=False,
+                    workers=1,
+                    save_labels=True,
+                )
 
     def test_validate_fps_accepts_divisors_rejects_others(self) -> None:
         for good in (10, 12, 30, 60, 1):  # divisors of 60

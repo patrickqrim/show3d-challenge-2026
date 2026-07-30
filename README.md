@@ -107,6 +107,24 @@ grayscale JPEG size over a 10-recording sample (about 140 KB at q90):
 `--quality 80` is about a third smaller (about 93 KB/frame); `--format png` is
 lossless but roughly 3x larger (about 430 KB/frame).
 
+### Labels alongside the frames
+
+Add `--save-labels` and the tool also writes `frames/labels.jsonl`: the per-frame
+interaction-field targets, one row per frame (deduped across views) in the
+evaluator's reference-label format, keyed by the same `sample_id` as each image.
+Training then joins the two by `sample_id` -- `index.jsonl` gives the image
+path(s), `labels.jsonl` gives the `(21, 3)` target per hand.
+
+```bash
+python -m show3d.extract_images --root /path/to/show3d --out frames/ --fps 10 \
+    --manifest show3d/interaction_field/train_manifest_202607.jsonl --save-labels
+```
+
+This needs `object_pose/` and `hand_pose/` under `--root` (not just the videos);
+the tool errors up front if they are missing. The
+[challenge README](show3d/interaction_field/README.md#training-set) walks the
+end-to-end training flow.
+
 ## Repository layout
 
 ```
