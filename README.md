@@ -85,60 +85,22 @@ interaction field, arrows from each hand joint to the nearest object point.
 
 ## Extracting frames for training
 
-Random per-frame video seeking is slow, so training straight from the MP4s is
-decode-bound. Pre-extract the frames you need, at an fps **you choose**, into a
-random-access image store:
-
-```bash
-python -m show3d.extract_images --root /path/to/show3d --out frames/ --fps 10 \
-    --manifest show3d/interaction_field/train_manifest_202607.jsonl
-# --views headset0 | --format png | --quality 80 | --workers 16
-```
-
-`--manifest` is the reproducible way to pick scenes: it ships at
-`show3d/interaction_field/train_manifest_202607.jsonl` and lists the exact
-interaction-field **training** recordings (train subjects only). Without it the
-tool walks `<root>/scenes` and keeps scenes that have object-pose GT.
-
-`--fps` is required and has no default: it dominates dataset size and temporal
-coverage. It must be a whole number that divides the 60 fps source (1, 2, 3, 4,
-5, 6, 10, 12, 15, 20, 30, 60); other values are rejected. The tool decodes each
-recording once (sequential, no seeking), writes grayscale JPEGs (or PNG with
-`--format png`) to `frames/<subject>/<scene>/<view>/<frame>.jpg` plus an
-`index.jsonl` a map-style training `Dataset` can shuffle over.
-
-Storage for the full 468-recording training set at the default JPEG quality
-(`--quality 90`). Frame counts are exact; bytes per frame are the measured mean
-grayscale JPEG size over a 10-recording sample (about 140 KB at q90):
-
-| fps | frames / view | single-view | both views |
-| --- | --- | --- | --- |
-| 5  | 69,296  | 9 GiB   | 19 GiB  |
-| 10 | 138,579 | 19 GiB  | 37 GiB  |
-| 15 | 207,853 | 28 GiB  | 56 GiB  |
-| 30 | 415,404 | 56 GiB  | 111 GiB |
-| 60 | 830,597 | 111 GiB | 222 GiB |
-
-`--quality 80` is about a third smaller (about 93 KB/frame); `--format png` is
-lossless but roughly 3x larger (about 430 KB/frame).
-
-### Labels alongside the frames
-
-Add `--save-labels` and the tool also writes `frames/labels.jsonl`: the per-frame
-interaction-field targets, one row per frame (deduped across views) in the
-evaluator's reference-label format, keyed by the same `sample_id` as each image.
-Training then joins the two by `sample_id` -- `index.jsonl` gives the image
-path(s), `labels.jsonl` gives the `(21, 3)` target per hand.
+Training straight from the MP4s is decode-bound (random per-frame seeking is
+slow). `show3d.extract_images` pre-extracts frames at an fps you choose into a
+random-access image store -- one JPEG per frame plus an `index.jsonl` a map-style
+`Dataset` can shuffle over; `--save-labels` also materializes the interaction-
+field targets:
 
 ```bash
 python -m show3d.extract_images --root /path/to/show3d --out frames/ --fps 10 \
     --manifest show3d/interaction_field/train_manifest_202607.jsonl --save-labels
+# --views headset0 | --format png | --quality 80 | --workers 16
 ```
 
-This needs `object_pose/` and `hand_pose/` under `--root` (not just the videos);
-the tool errors up front if they are missing. The
-[challenge README](show3d/interaction_field/README.md#training-set) walks the
-end-to-end training flow.
+`--fps` is required (no default) and must be a whole divisor of the 60 fps source
+(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60). The interaction-field training set,
+the end-to-end train flow, and measured storage sizes live in the
+[challenge README](show3d/interaction_field/README.md#training-set).
 
 ## Repository layout
 

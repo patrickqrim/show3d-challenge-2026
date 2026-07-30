@@ -110,6 +110,21 @@ and materialize the targets in one command:
 submission against it directly. Only train-subject labels exist; the held-out
 test frames have none.
 
+**Storage** for the full 468-recording training set at the default JPEG quality
+(`--quality 90`). Frame counts are exact; bytes per frame are the measured mean
+grayscale JPEG size over a 10-recording sample (about 140 KB at q90):
+
+| fps | frames / view | single-view | both views |
+| --- | --- | --- | --- |
+| 5  | 69,296  | 9 GiB   | 19 GiB  |
+| 10 | 138,579 | 19 GiB  | 37 GiB  |
+| 15 | 207,853 | 28 GiB  | 56 GiB  |
+| 30 | 415,404 | 56 GiB  | 111 GiB |
+| 60 | 830,597 | 111 GiB | 222 GiB |
+
+`--quality 80` is about a third smaller (about 93 KB/frame); `--format png` is
+lossless but roughly 3x larger (about 430 KB/frame).
+
 ## Submit your predictions
 
 The test set is the shipped **test manifest** -- one row per frame you must
