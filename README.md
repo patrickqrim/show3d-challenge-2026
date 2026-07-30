@@ -45,15 +45,28 @@ end-to-end demo, a baseline template, and evaluation live in
 
 ## Visualize a frame
 
-`show3d.demo_viz` renders one frame's interaction field (object surface, hand
-landmarks, and the nearest-neighbor arrows) to a PNG (needs `matplotlib`):
+`show3d.demo_viz` renders three views of a frame (needs `matplotlib`); the
+projection and drawing primitives live in `show3d.camera` and `show3d.viz`:
 
 ```bash
-python -m show3d.demo_viz --out field.png
-# add --root DIR --manifest MANIFEST.jsonl to visualize your own mirror
+python -m show3d.demo_viz --mode overlay  --out overlay.png    # skeleton + object on the frame
+python -m show3d.demo_viz --mode geometry --out geometry.png   # 3D skeleton + object
+python -m show3d.demo_viz --mode field    --out field.png      # 3D interaction field
 ```
 
-![Interaction field on a real frame: arrows from each hand joint to the nearest object-surface point.](show3d/interaction_field/example_field.png)
+Add `--root DIR --manifest MANIFEST.jsonl` to visualize your own mirror (overlay
+decodes the frame).
+
+**overlay**: the hand skeleton and object projected onto the egocentric frame.
+
+![overlay](docs/overlay.png)
+
+**geometry**: the hand skeleton and object surface in 3D. **field**: the
+interaction field, arrows from each hand joint to the nearest object point.
+
+![geometry](docs/geometry.png)
+
+![field](docs/field.png)
 
 ## Extracting frames for training
 
