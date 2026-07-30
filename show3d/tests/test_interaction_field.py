@@ -1,0 +1,270 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
+# pyre-strict
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from typing import cast
+
+import numpy as np
+from numpy.typing import NDArray
+
+from ..interaction_field import (
+    DEFAULT_VIDEO_FPS,
+    evaluate_label_jsonl,
+    evaluate_submission_jsonl,
+    InteractionFieldSample,
+    LabelRecord,
+    LEFT_TO_OBJECT,
+    make_manifest_rows,
+    PredictionRecord,
+    read_manifest_jsonl,
+    RIGHT_TO_OBJECT,
+    sampled_frame_indices,
+    Show3DInteractionFieldDataset,
+    write_label_jsonl,
+    write_manifest_jsonl,
+    write_submission_jsonl,
+)
+
+
+class Show3DInteractionApiTest(unittest.TestCase):
+    def test_sampling_uses_source_frame_stride_for_integer_rates(self) -> None:
+        self.assertEqual(
+            sampled_frame_indices(13, sampling_fps=10.0, video_fps=DEFAULT_VIDEO_FPS),
+            [0, 6, 12],
+        )
+        self.assertEqual(
+            sampled_frame_indices(13, sampling_fps=5.0, video_fps=DEFAULT_VIDEO_FPS),
+            [0, 12],
+        )
+
+    def test_manifest_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "manifest.jsonl"
+            rows = make_manifest_rows(
+                "S001",
+                "mug_grab_a1b2",
+                num_frames=13,
+                sampling_fps=10.0,
+                has_left_hand=True,
+            )
+            write_manifest_jsonl(path, rows)
+
+            self.assertEqual(
+                read_manifest_jsonl(path),
+                [
+                    InteractionFieldSample(
+                        sample_id="S001/mug_grab_a1b2:000000",
+                        subject_id="S001",
+                        scene_id="mug_grab_a1b2",
+                        frame_index=0,
+                        sampling_fps=10.0,
+                        object_alias="mug",
+                        has_left_hand=True,
+                    ),
+                    InteractionFieldSample(
+                        sample_id="S001/mug_grab_a1b2:000006",
+                        subject_id="S001",
+                        scene_id="mug_grab_a1b2",
+                        frame_index=6,
+                        sampling_fps=10.0,
+                        object_alias="mug",
+                        has_left_hand=True,
+                    ),
+                    InteractionFieldSample(
+                        sample_id="S001/mug_grab_a1b2:000012",
+                        subject_id="S001",
+                        scene_id="mug_grab_a1b2",
+                        frame_index=12,
+                        sampling_fps=10.0,
+                        object_alias="mug",
+                        has_left_hand=True,
+                    ),
+                ],
+            )
+
+    def test_dataset_labels_and_submission_evaluator(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subject_id = "S001"
+            scene_id = "mug_grab_a1b2"
+            sample = InteractionFieldSample(
+                sample_id=f"{subject_id}/{scene_id}:000000",
+                subject_id=subject_id,
+                scene_id=scene_id,
+                frame_index=0,
+                sampling_fps=10.0,
+                object_alias="mug",
+                has_left_hand=True,
+                has_right_hand=False,
+            )
+            manifest_path = root / "manifest.jsonl"
+            write_manifest_jsonl(manifest_path, [sample])
+            self._write_scene_files(root, subject_id, scene_id)
+
+            dataset = Show3DInteractionFieldDataset(
+                root,
+                manifest_path,
+                object_mesh_provider=lambda alias: np.asarray(
+                    [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
+                ),
+            )
+            example = dataset[0]
+
+            self.assertEqual(example.sample, sample)
+            self.assertIsNotNone(example.labels)
+            labels = example.labels
+            assert labels is not None
+            np.testing.assert_allclose(
+                labels.left_to_object,
+                np.asarray([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            )
+            self.assertIsNone(labels.right_to_object)
+            self.assertTrue(labels.is_valid)
+            self.assertTrue(example.is_valid)
+            self.assertTrue(example.headset_tracking_valid)
+
+            submission_path = root / "submission.jsonl"
+            left_to_object = cast(NDArray[np.float64], labels.left_to_object)
+            write_submission_jsonl(
+                submission_path,
+                [
+                    PredictionRecord(
+                        sample_id=sample.sample_id,
+                        fields={LEFT_TO_OBJECT: left_to_object},
+                    )
+                ],
+            )
+            result = evaluate_submission_jsonl(dataset, submission_path)
+
+            self.assertEqual(result.fields[LEFT_TO_OBJECT].num_points, 2)
+            self.assertEqual(result.fields[LEFT_TO_OBJECT].missing_predictions, 0)
+            self.assertEqual(result.fields[LEFT_TO_OBJECT].ade_mm, 0.0)
+            self.assertEqual(
+                result.fields[LEFT_TO_OBJECT].accuracy_by_threshold_mm[10.0],
+                1.0,
+            )
+            self.assertEqual(result.fields[RIGHT_TO_OBJECT].num_points, 0)
+
+            label_path = root / "labels.jsonl"
+            write_label_jsonl(
+                label_path,
+                [LabelRecord(sample_id=sample.sample_id, labels=labels)],
+            )
+            label_result = evaluate_label_jsonl(label_path, submission_path)
+            self.assertEqual(label_result.mean_ade_mm, 0.0)
+
+    def test_synthesized_frame_yields_no_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subject_id = "S001"
+            scene_id = "mug_grab_a1b2"
+            sample = InteractionFieldSample(
+                sample_id=f"{subject_id}/{scene_id}:000000",
+                subject_id=subject_id,
+                scene_id=scene_id,
+                frame_index=0,
+                sampling_fps=10.0,
+                object_alias="mug",
+                has_left_hand=True,
+            )
+            manifest_path = root / "manifest.jsonl"
+            write_manifest_jsonl(manifest_path, [sample])
+            self._write_scene_files(root, subject_id, scene_id)
+            self._write_synthesized_calibration(root, subject_id, scene_id)
+
+            dataset = Show3DInteractionFieldDataset(
+                root,
+                manifest_path,
+                object_mesh_provider=lambda alias: np.asarray(
+                    [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
+                ),
+            )
+            example = dataset[0]
+
+            self.assertFalse(example.headset_tracking_valid)
+            self.assertFalse(example.is_valid)
+            self.assertIsNone(example.labels)
+
+    def _write_scene_files(self, root: Path, subject_id: str, scene_id: str) -> None:
+        scene_dir = root / "scenes" / subject_id / scene_id
+        scene_dir.mkdir(parents=True)
+        (scene_dir / "headset0.mp4").write_bytes(b"")
+        (scene_dir / "headset1.mp4").write_bytes(b"")
+
+        object_pose_dir = root / "object_pose" / "v1" / "scenes" / subject_id / scene_id
+        object_pose_dir.mkdir(parents=True)
+        with (object_pose_dir / "object_pose.json").open("w") as f:
+            json.dump(
+                {
+                    "0": {
+                        "confidence": 0.99,
+                        "R": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                        "t": [[0.0], [0.0], [0.0]],
+                    }
+                },
+                f,
+            )
+
+        hand_pose_dir = root / "hand_pose" / "v2" / "scenes" / subject_id / scene_id
+        hand_pose_dir.mkdir(parents=True)
+        with (hand_pose_dir / "hand_pose.json").open("w") as f:
+            json.dump(
+                {
+                    "0": {
+                        "hand_poses": {
+                            "0": {
+                                "confidence": 0.99,
+                                "landmarks_3d_mm": [
+                                    [1.0, 0.0, 0.0],
+                                    [9.0, 0.0, 0.0],
+                                ],
+                            },
+                            "1": {
+                                "confidence": 0.0,
+                                "landmarks_3d_mm": None,
+                            },
+                        }
+                    }
+                },
+                f,
+            )
+
+    def _write_synthesized_calibration(
+        self, root: Path, subject_id: str, scene_id: str
+    ) -> None:
+        calibration_dir = root / "scenes" / subject_id / scene_id / "camera_calibration"
+        calibration_dir.mkdir(parents=True, exist_ok=True)
+        identity = [[1.0 if r == c else 0.0 for c in range(4)] for r in range(4)]
+        for name in ("headset0", "headset1"):
+            with (calibration_dir / f"{name}.json").open("w") as f:
+                json.dump(
+                    {
+                        "ImageSizeX": 1024,
+                        "ImageSizeY": 1280,
+                        "fx": 450.0,
+                        "fy": 450.0,
+                        "cx": 512.0,
+                        "cy": 640.0,
+                        "DistortionModel": "PinholePlane",
+                        "T_WorldFromCamera_by_index": {
+                            "0": {
+                                "index": 0,
+                                "T_WorldFromCamera": identity,
+                                "is_synthesized": True,
+                            }
+                        },
+                    },
+                    f,
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,6 @@
+# SHOW3D dataset API -- Python dependencies.
+# Core dataloader + interaction-field labels/eval:
+numpy
+opencv-python
+# Only needed for the visualization demo (python -m show3d.demo):
+matplotlib
