@@ -1,8 +1,6 @@
 # SHOW3D dataset API
 
-Standalone Python starter APIs for the SHOW3D dataset (`facebook/show3d-dataset`)
-and its interaction-field challenge. The core (dataloader + labels + eval) needs
-only `numpy` and `opencv-python`; the visualization demo also needs `matplotlib`.
+Standalone Python starter APIs for the SHOW3D dataset (`facebook/show3d-dataset`).
 
 ## Install
 
@@ -13,8 +11,9 @@ pip install -r requirements.txt
 
 ## The dataset
 
-Download SHOW3D from Hugging Face (`facebook/show3d-dataset`). `show3d.dataset`
-is the generic, task-agnostic loader — frame references and manifest JSONL
+Download SHOW3D from Hugging Face:
+[`facebook/show3d-dataset`](https://huggingface.co/datasets/facebook/show3d-dataset).
+`show3d.dataset` is the generic, task-agnostic loader: frame references and manifest JSONL
 helpers, path resolution, and per-frame object-pose / hand-pose / calibration
 loading. Point it at your local mirror:
 
@@ -53,7 +52,7 @@ show3d/
 # Interaction Field Estimation
 
 The task is per-frame: given an egocentric frame, predict, for each hand, a
-**hand-anchored 3D vector field** — the offset from every one of the 21 hand
+**hand-anchored 3D vector field**: the offset from every one of the 21 hand
 joints to the nearest surface point of the manipulated object. The prediction is
 therefore fixed size, `(21, 3)` per hand, independent of the object.
 
@@ -64,10 +63,10 @@ evaluator.
 
 ## Quickstart
 
-Two demos, both runnable with **no data download** — they fall back to a small
+Two demos, both runnable with **no data download**: they fall back to a small
 synthetic scene, so you see the whole pipeline in one command.
 
-**End-to-end demo** — load frames, run a model, evaluate:
+**End-to-end demo** loads frames, runs a model, evaluates:
 
 ```bash
 python -m show3d.interaction_field.demo
@@ -86,7 +85,7 @@ Evaluation (interaction field, naive random model):
   mean ADE: 163.5 mm
 ```
 
-**Visualization demo** — render one frame's interaction field to a PNG:
+**Visualization demo** renders one frame's interaction field to a PNG:
 
 ```bash
 python -m show3d.demo --out field.png
@@ -97,7 +96,7 @@ Run either on your own mirror with `--root DIR --manifest MANIFEST.jsonl`.
 ## Build your baseline
 
 The end-to-end demo is the template. To turn it into a real baseline, edit one
-function — `naive_model` in `show3d/interaction_field/demo.py`:
+function, `naive_model` in `show3d/interaction_field/demo.py`:
 
 ```python
 def naive_model(example, rng):
@@ -123,7 +122,7 @@ Each frame's `frame_data.views` is a dict keyed by the selected view name. Each
 `ViewFrame` has `video_path` (the MP4) and a parsed `calibration`
 (`CameraCalibration`: pinhole `fx, fy, cx, cy`, image size, and the 4×4
 `t_world_from_camera` for that frame). The interaction-field target is in 3D
-world space, so it is view-independent — the choice only affects the inputs.
+world space, so it is view-independent, so the choice only affects the inputs.
 
 Frames decode on demand: pass `decode_images=True` and each `ViewFrame.image`
 is the decoded RGB frame `(H, W, 3)` uint8; otherwise `image` is `None` and you
@@ -135,7 +134,7 @@ Some frames have unreliable ground truth: `frame_data.headset_tracking_valid` is
 `False` when headset tracking failed and the pose was interpolated (the released
 `is_synthesized` flag). On those frames the synthesized `t_world_from_camera` is
 withheld (`None`) and the dataset builds no target (`labels=None`), so you can't
-train on them by accident. Use `example.is_valid` for the full check — it ANDs
+train on them by accident. Use `example.is_valid` for the full check: it ANDs
 headset tracking with a valid object pose and at least one valid hand.
 
 ## Object geometry (self-contained)
@@ -150,7 +149,7 @@ world_mm = object_pose.pose_vertices(canonical_vertices_object_mm)
 
 To stay self-contained, `show3d/assets/objects/<alias>.glb` bundles one GLB mesh
 per object (object frame, mm) for the 21 challenge objects, so
-`Show3DInteractionFieldDataset` builds labels out of the box — no HOT3D checkout
+`Show3DInteractionFieldDataset` builds labels out of the box, with no HOT3D checkout
 and no multi-gigabyte per-frame vertices. Pass your own `object_mesh_provider`
 to override.
 
@@ -167,11 +166,19 @@ python -m unittest discover
 The code and the bundled object meshes are released under Creative Commons
 Attribution-NonCommercial 4.0 International (CC BY-NC 4.0); see `LICENSE`. The
 bundled meshes are derived from the HOT3D object models (BOP HOT3D release,
-`object_models_eval`) — see `show3d/assets/objects/ATTRIBUTION.md`.
+`object_models_eval`); see `show3d/assets/objects/ATTRIBUTION.md`.
 
 ## Citation
 
-If you use SHOW3D, please cite the dataset paper — *SHOW3D: Capturing Scenes of
-3D Hands and Objects in the Wild* (CVPR 2026); see the
-[dataset page](https://huggingface.co/datasets/facebook/show3d-dataset) for the
-canonical citation.
+If you use SHOW3D, please cite:
+
+```bibtex
+@article{rim2026show3d,
+  title   = {SHOW3D: Capturing Scenes of 3D Hands and Objects in the Wild},
+  author  = {Rim, Patrick and Harris, Kevin and Copple, Braden and Han, Shangchen and
+             Xie, Xu and Shugurov, Ivan and An, Sizhe and Wen, He and
+             Wong, Alex and Hodan, Tomas and others},
+  journal = {arXiv preprint arXiv:2603.28760},
+  year    = {2026}
+}
+```
