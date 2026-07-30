@@ -76,6 +76,8 @@ _HANDS: tuple[tuple[str, str, str, str], ...] = (
     ("left hand", "tab:blue", "left_hand", LEFT_TO_OBJECT),
     ("right hand", "tab:green", "right_hand", RIGHT_TO_OBJECT),
 )
+# Field arrows use one distinct color so they read separately from the skeletons.
+FIELD_COLOR: str = "crimson"
 
 
 # ----------------------------------------------------------------------------
@@ -118,7 +120,11 @@ def draw_hand_skeleton_3d(
 
 
 def draw_field_3d(
-    ax: Any, joints_mm: FloatArray, field_mm: FloatArray, color: str
+    ax: Any,
+    joints_mm: FloatArray,
+    field_mm: FloatArray,
+    color: str = FIELD_COLOR,
+    label: str | None = None,
 ) -> None:
     """Draw the interaction field as arrows from each joint to the object."""
     ax.quiver(
@@ -131,6 +137,7 @@ def draw_field_3d(
         color=color,
         arrow_length_ratio=0.15,
         linewidth=1.0,
+        label=label,
     )
 
 
@@ -230,11 +237,18 @@ def render_field(example: InteractionFieldExample, out_path: str | Path) -> None
     if surface is not None:
         draw_object_3d(ax, surface)
         extent.append(surface)
+    field_labeled = False
     for label, color, joints, field in present_hands(example):
         draw_hand_skeleton_3d(ax, joints, color, label)
         extent.append(joints)
         if field is not None:
-            draw_field_3d(ax, joints, field, color)
+            draw_field_3d(
+                ax,
+                joints,
+                field,
+                label=None if field_labeled else "interaction field",
+            )
+            field_labeled = True
             extent.append(joints + field)
     _finish_3d(ax, extent, f"SHOW3D interaction field: {example.sample.sample_id}")
     fig.savefig(out_path, dpi=120, bbox_inches="tight")

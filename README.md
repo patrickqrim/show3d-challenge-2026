@@ -90,8 +90,22 @@ coverage. It must be a whole number that divides the 60 fps source (1, 2, 3, 4,
 5, 6, 10, 12, 15, 20, 30, 60); other values are rejected. The tool decodes each
 recording once (sequential, no seeking), writes grayscale JPEGs (or PNG with
 `--format png`) to `frames/<subject>/<scene>/<view>/<frame>.jpg` plus an
-`index.jsonl` a map-style training `Dataset` can shuffle over. As a rough size
-guide, 10 fps is tens of GB single-view (about 100 GB both views).
+`index.jsonl` a map-style training `Dataset` can shuffle over.
+
+Storage for the full 468-recording training set at the default JPEG quality
+(`--quality 90`). Frame counts are exact; bytes per frame are the measured mean
+grayscale JPEG size over a 10-recording sample (about 140 KB at q90):
+
+| fps | frames / view | single-view | both views |
+| --- | --- | --- | --- |
+| 5  | 69,296  | 9 GiB   | 19 GiB  |
+| 10 | 138,579 | 19 GiB  | 37 GiB  |
+| 15 | 207,853 | 28 GiB  | 56 GiB  |
+| 30 | 415,404 | 56 GiB  | 111 GiB |
+| 60 | 830,597 | 111 GiB | 222 GiB |
+
+`--quality 80` is about a third smaller (about 93 KB/frame); `--format png` is
+lossless but roughly 3x larger (about 430 KB/frame).
 
 ## Repository layout
 
