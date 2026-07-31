@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pyre-strict
+# pyre-strict 
 
 """Generic dataloader helpers for the SHOW3D public starter repo.
 
