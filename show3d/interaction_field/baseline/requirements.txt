@@ -1,0 +1,8 @@
+# Extra dependencies for the InterField baseline (on top of the repo's
+# requirements.txt: numpy, opencv-python, matplotlib).
+#
+# Install a CUDA build of torch that matches your driver. The reference baseline
+# was trained with torch 2.5.1 + CUDA 12.1 (driver 535 / CUDA 12.2):
+#   pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121
+torch>=2.2
+torchvision>=0.17

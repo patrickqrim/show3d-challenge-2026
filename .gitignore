@@ -2,3 +2,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+
+# Extracted frames and local prediction dumps (large, regenerated locally)
+predictions*.jsonl
+frames/

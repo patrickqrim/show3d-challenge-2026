@@ -65,6 +65,16 @@ accuracy evaluator. For fast training, pre-extract frames with
 `show3d.extract_images --manifest show3d/interaction_field/train_manifest_202607.jsonl`
 (the shipped list of training recordings; see the top-level README).
 
+### Trained reference baseline (InterField)
+
+A complete, trained reference baseline — the InterField model (after ARCTIC): a
+single-image ResNet-50 regressor with train/predict/evaluate/visualize scripts and
+a checkpoint — lives in [`baseline/`](baseline/). It reaches a mean ADE of
+60.5 mm (recall 1.0, acc@100mm 0.86) on a **held-out split of the training
+subjects** (the official test-subject labels are withheld, so this is a
+cross-subject generalization estimate, not a test-set number); see
+[`baseline/RESULTS.md`](baseline/RESULTS.md) for the full setup and numbers.
+
 ## Training set
 
 Training uses **train subjects only**. The shipped manifest
