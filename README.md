@@ -1,4 +1,4 @@
-# SHOW3D dataset API
+# SHOW3D Dataset API
 
 Standalone Python starter APIs for the SHOW3D dataset
 (`facebook/show3d-dataset`) and the Interaction Field Estimation Challenge at the
